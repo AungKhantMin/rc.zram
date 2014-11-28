@@ -1,4 +1,13 @@
 #!/bin/bash
+### BEGIN INIT INFO
+# Provides: zram
+# Required-Start:
+# Required-Stop:
+# Default-Start: 2 3 4 5
+# Default-Stop: 0 1 6
+# Short-Description: Increased Performance In Linux With zRam (Virtual Swap Compressed in RAM)
+### END INIT INFO
+
 # First we have to calculate zram the number of zram devices and their size in bytes.
 # It's recommended to use as many of them, as many *physical* cores your CPU has (ignoring logical cores like thoce produced by HyperThreading)
 # e.g. Intel Atom N435 hos only one real core, but due to HyperThreading technology it's shown as two.
