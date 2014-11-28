@@ -1,0 +1,88 @@
+#!/bin/bash
+# First we have to calculate zram the number of zram devices and their size in bytes.
+# It's recommended to use as many of them, as many *physical* cores your CPU has (ignoring logical cores like thoce produced by HyperThreading)
+# e.g. Intel Atom N435 hos only one real core, but due to HyperThreading technology it's shown as two.
+ncores=$(grep "^cpu cores" /proc/cpuinfo | awk  '{print $4}' | head -1)	# number of physical CPU cores (if result is wrong you should set a constant value)
+ramsize=$(grep "^MemTotal" /proc/meminfo | awk '{print $2}')		# total amount of RAM measured in KBytes
+
+# Ratio means the relation of total zram devices' size to total ram size: ratio="3/2" means that if you have 2 GB of ram, a sum of all zram devices' sizes
+# will be 3GB.
+ratio="2/3"								# no decimals accepted: use arythmetical expressions like "2/3" for fractions
+
+# By default, total size of zram partitions will be equal to total amount of memory, but feel free to change that (for example double it adding *2).
+# For more information see: https://www.kernel.org/doc/Documentation/blockdev/zram.txt
+zdevsize=$(($ramsize/$ncores*1024*$ratio))				# each zram device's size measured in bytes
+
+start () {
+    echo "Physical CPU cores: $ncores" 
+    echo "Total amount of RAM: $ramsize KBytes"
+
+# A piece of debug to stdout:)
+    modprobe zram num_devices=$ncores					# try to insert zram kernel module
+    lsmod | grep zram >/dev/null && echo "ZRAM kernel module is active" || echo "Failed to insert ZRAM module. Giving up."
+    # checked if the module is in its place
+
+# Here we initialize all the devices one-by-one setting their sizes
+    for zramsys in /sys/block/zram*
+	do
+	    echo $zdevsize > $zramsys/disksize
+	done
+
+# Time to set swap areas on the devices and mount them. Argument '-p100' means the highest swapping priority:
+# if you've also set up on-disk swap space it'll be used only when zram devices are full.
+    for zramdev in /dev/zram*
+	do
+	    mkswap $zramdev
+	    swapon -p100 $zramdev
+	done
+}
+
+stop () {
+    echo "Deconfiguring compressed in-memory swap"
+# Assuming there could be some on-disk swap areas, we won't 'swapoff -a'. We'll beter safely detach only zram devices one-by-one/
+    for zramdev in /dev/zram*
+	do
+	    swapoff $zramdev
+	done
+
+    for zramsys in /sys/block/zram*
+	do
+	    echo 42 > $zramsys/reset 					# free all the memory allocated for the device and resets the disksize to zero.
+	done
+}
+
+status () {
+    lsmod | grep zram >/dev/null && echo "ZRAM kernel module is active" || echo \
+    "No zram module present"
+    lsmod | grep zram >/dev/null || exit 1
+    num=$(ls -d /sys/block/zram* | wc -w)
+    total=0
+    for zramsys in /sys/block/zram*
+	do
+	    total=$(($total+$(cat $zramsys/disksize)))
+	done
+    echo "Swap devices number: $num"
+    echo "Total ZRAM swap size: $(($total/1024))KB" "("$(($total/1024/1024))"MB)"
+}
+
+case "$1" in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    restart)
+        stop
+        sleep 1
+        start
+        ;;
+    status)
+	status
+	;;
+    *)
+        echo "Usage: $0 {start|stop|restart|status}"
+        RETVAL=1
+	;;
+esac
+exit $RETVAL
